@@ -34,7 +34,7 @@ export const CREDIT_CARDS: Record<string, CreditCard> = {
     name: "gold",
     displayName: "American Express Gold",
     issuer: "American Express",
-    annualFee: 250,
+    annualFee: 325,
     theme: {
       primary: "#000000",
       secondary: "#D4AF37",
@@ -59,14 +59,6 @@ export const CREDIT_CARDS: Record<string, CreditCard> = {
         merchantKeywords: ["uber", "uber eats", "uber trip"],
       },
       {
-        id: "airline",
-        name: "Airline Fee Credit",
-        totalAmount: 100,
-        resetPeriod: "annually",
-        description: "Incidental fees at selected airline (baggage, seat selection, etc).",
-        merchantKeywords: ["delta", "united", "american airlines", "southwest", "jetblue", "bag fee", "seat selection"],
-      },
-      {
         id: "resy",
         name: "Resy Credit",
         totalAmount: 100,
@@ -82,6 +74,22 @@ export const CREDIT_CARDS: Record<string, CreditCard> = {
         description: "U.S. Dunkin' locations.",
         merchantKeywords: ["dunkin", "dunkin donuts"],
       },
+      {
+        id:"hotel",
+        name: "The Hotel Collection Credit",
+        totalAmount: 100,
+        resetPeriod: "annually",
+        description: "The Hotel Collection credit for hotel stays.",
+        merchantKeywords: ["the hotel collection"],
+      },
+      {
+        id: "other",
+        name: "Other Credit",
+        totalAmount: 0,
+        resetPeriod: "annually",
+        description: "Other credit for miscellaneous purchases.",
+        merchantKeywords: ["other"],
+      }
     ],
   },
   amexPlatinum: {
@@ -89,7 +97,7 @@ export const CREDIT_CARDS: Record<string, CreditCard> = {
     name: "platinum",
     displayName: "American Express Platinum",
     issuer: "American Express",
-    annualFee: 695,
+    annualFee: 895,
     theme: {
       primary: "#000000",
       secondary: "#8B8C89",
@@ -160,7 +168,7 @@ export const CREDIT_CARDS: Record<string, CreditCard> = {
     name: "sapphire-reserve",
     displayName: "Chase Sapphire Reserve",
     issuer: "Chase",
-    annualFee: 550,
+    annualFee: 795,
     theme: {
       primary: "#000000",
       secondary: "#003DA5",
