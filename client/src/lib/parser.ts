@@ -130,6 +130,36 @@ function isNumberLike(str: string): boolean {
 }
 
 /**
+ * Get the per-transaction credit cap for a benefit
+ * This is the maximum amount that can be credited per transaction
+ */
+function getPerTransactionCreditCap(benefit: Benefit): number {
+  // Special case: Resy credit is $50 per transaction (2x $50 per year)
+  if (benefit.id === "resy") {
+    return 50;
+  }
+  
+  // For monthly benefits, the totalAmount is the monthly credit amount
+  // which is also the per-transaction cap
+  if (benefit.resetPeriod === "monthly") {
+    return benefit.totalAmount;
+  }
+  
+  // For other benefits, use totalAmount as the per-transaction cap
+  // (most credits cap at the total benefit amount per transaction)
+  return benefit.totalAmount;
+}
+
+/**
+ * Check if a transaction appears to be a credit/adjustment (not a charge)
+ */
+function isCreditTransaction(transaction: ParsedTransaction): boolean {
+  const text = (transaction.merchant + " " + transaction.description).toLowerCase();
+  const creditKeywords = ["credit", "adjustment", "reimbursement", "refund", "rebate"];
+  return creditKeywords.some(keyword => text.includes(keyword));
+}
+
+/**
  * Match transactions to benefits based on merchant keywords
  */
 export function matchTransactionsToBenefits(
@@ -155,18 +185,39 @@ export function matchTransactionsToBenefits(
       );
       
       if (matched) {
-        // Add transaction to benefit
+        // Check if this is a credit transaction (from Amex) or a charge
+        const isCredit = isCreditTransaction(transaction);
+        
+        let creditedAmount: number;
+        
+        if (isCredit) {
+          // For credit transactions, use the amount as-is (it's already the credit amount)
+          creditedAmount = transaction.amount;
+        } else {
+          // For charge transactions, cap at the per-transaction credit limit
+          // (e.g., if you spend $10 at Dunkin, only $7 is credited)
+          const perTransactionCap = getPerTransactionCreditCap(benefit);
+          creditedAmount = Math.min(transaction.amount, perTransactionCap);
+        }
+        
+        // Calculate how much can still be added to usedAmount
+        const remainingCredit = benefit.totalAmount - benefit.usedAmount;
+        const amountToAdd = Math.min(creditedAmount, remainingCredit);
+        
+        // Add transaction to benefit (store original amount for display)
         benefit.transactions.push({
           date: transaction.date,
           merchant: transaction.merchant,
           amount: transaction.amount,
         });
         
-        // Update used amount (cap at total amount)
-        benefit.usedAmount = Math.min(
-          benefit.usedAmount + transaction.amount,
-          benefit.totalAmount
-        );
+        // Update used amount (only add the credited portion, capped at total benefit amount)
+        if (amountToAdd > 0) {
+          benefit.usedAmount = Math.min(
+            benefit.usedAmount + amountToAdd,
+            benefit.totalAmount
+          );
+        }
         
         break; // Don't match to multiple benefits
       }
