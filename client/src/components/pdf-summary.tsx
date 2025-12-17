@@ -1,7 +1,8 @@
-import { Document, Page, Text, View, StyleSheet, PDFDownloadLink } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, PDFDownloadLink, pdf } from "@react-pdf/renderer";
 import { Benefit, CreditCard } from "@/lib/cards";
 import { Button } from "./ui/button";
 import { Download } from "lucide-react";
+import { useState, useEffect } from "react";
 
 // PDF Styles with brutalist theme
 const styles = StyleSheet.create({
@@ -157,16 +158,24 @@ type PDFSummaryProps = {
 
 // PDF Document Component
 const BenefitSummaryDocument = ({ card, benefits, totalFilesProcessed, totalTransactions }: PDFSummaryProps) => {
-  const totalValueAvailable = benefits.reduce((acc, b) => acc + b.totalAmount, 0);
-  const totalValueCaptured = benefits.reduce((acc, b) => acc + b.usedAmount, 0);
-  const utilizationRate = totalValueAvailable > 0 ? (totalValueCaptured / totalValueAvailable) * 100 : 0;
-  const currentDate = new Date().toLocaleDateString("en-US", { 
-    year: "numeric", 
-    month: "long", 
-    day: "numeric" 
-  });
+  try {
+    const totalValueAvailable = benefits.reduce((acc, b) => acc + b.totalAmount, 0);
+    const totalValueCaptured = benefits.reduce((acc, b) => acc + b.usedAmount, 0);
+    const utilizationRate = totalValueAvailable > 0 ? (totalValueCaptured / totalValueAvailable) * 100 : 0;
+    const currentDate = new Date().toLocaleDateString("en-US", { 
+      year: "numeric", 
+      month: "long", 
+      day: "numeric" 
+    });
 
-  return (
+    console.log("BenefitSummaryDocument rendering:", {
+      card: card.displayName,
+      benefitsCount: benefits.length,
+      totalValueAvailable,
+      totalValueCaptured
+    });
+
+    return (
     <Document>
       <Page size="A4" style={styles.page}>
         {/* Header */}
@@ -207,7 +216,12 @@ const BenefitSummaryDocument = ({ card, benefits, totalFilesProcessed, totalTran
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Benefits Breakdown</Text>
           {benefits.map((benefit, index) => {
-            const percentage = Math.min((benefit.usedAmount / benefit.totalAmount) * 100, 100);
+            // Calculate percentage, ensuring it's always a valid number
+            const percentage = benefit.totalAmount > 0 
+              ? Math.min((benefit.usedAmount / benefit.totalAmount) * 100, 100)
+              : 0;
+            // Ensure percentage is a valid number (not NaN)
+            const safePercentage = isNaN(percentage) ? 0 : Math.max(0, Math.min(100, percentage));
             return (
               <View key={index} style={styles.benefitCard}>
                 <View style={styles.benefitHeader}>
@@ -227,12 +241,12 @@ const BenefitSummaryDocument = ({ card, benefits, totalFilesProcessed, totalTran
                   </View>
                   <View>
                     <Text style={styles.amountLabel}>UTILIZATION</Text>
-                    <Text style={styles.amountValue}>{percentage.toFixed(0)}%</Text>
+                    <Text style={styles.amountValue}>{safePercentage.toFixed(0)}%</Text>
                   </View>
                 </View>
 
                 <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${percentage}%` }]} />
+                  <View style={[styles.progressFill, { width: `${safePercentage}%` }]} />
                 </View>
 
                 {benefit.transactions.length > 0 && (
@@ -265,7 +279,20 @@ const BenefitSummaryDocument = ({ card, benefits, totalFilesProcessed, totalTran
         </View>
       </Page>
     </Document>
-  );
+    );
+  } catch (error) {
+    console.error("Error rendering PDF document:", error);
+    return (
+      <Document>
+        <Page size="A4" style={styles.page}>
+          <View style={styles.header}>
+            <Text style={styles.title}>ERROR</Text>
+            <Text style={styles.subtitle}>Failed to generate PDF: {String(error)}</Text>
+          </View>
+        </Page>
+      </Document>
+    );
+  }
 };
 
 // Download Button Component
@@ -273,21 +300,120 @@ type PDFDownloadButtonProps = PDFSummaryProps;
 
 export function PDFDownloadButton(props: PDFDownloadButtonProps) {
   const fileName = `benefit-summary-${props.card.name}-${new Date().toISOString().split('T')[0]}.pdf`;
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  console.log("PDFDownloadButton rendered with props:", {
+    card: props.card.displayName,
+    benefitsCount: props.benefits.length,
+    totalFilesProcessed: props.totalFilesProcessed,
+    totalTransactions: props.totalTransactions,
+    fileName
+  });
+  
+  // Generate PDF blob manually as fallback
+  const generatePdfManually = async () => {
+    try {
+      setIsGenerating(true);
+      console.log("Generating PDF manually...");
+      const doc = <BenefitSummaryDocument {...props} />;
+      const asPdf = pdf(doc);
+      const blob = await asPdf.toBlob();
+      setPdfBlob(blob);
+      console.log("PDF generated manually!", { blobSize: blob.size });
+      
+      // Trigger download
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+      console.log("Download triggered!");
+    } catch (error) {
+      console.error("Error generating PDF manually:", error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+  
+  const handleButtonClick = () => {
+    console.log("PDF button clicked!", { hasPdfBlob: !!pdfBlob, isGenerating, fileName });
+    
+    if (pdfBlob && !isGenerating) {
+      // Use cached blob
+      const downloadUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+      console.log("Download triggered from cached blob!");
+    } else if (!isGenerating) {
+      // Generate PDF manually
+      generatePdfManually();
+    }
+  };
   
   return (
-    <PDFDownloadLink
-      document={<BenefitSummaryDocument {...props} />}
-      fileName={fileName}
-    >
-      {({ loading }) => (
-        <Button
-          className="rounded-none h-14 px-8 text-lg font-bold border-2 border-black bg-secondary text-black hover:bg-secondary/90 hover:translate-x-[2px] hover:translate-y-[2px] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px]"
-          disabled={loading}
-        >
-          {loading ? "GENERATING PDF..." : "DOWNLOAD PDF SUMMARY"} <Download className="ml-2 w-6 h-6" />
-        </Button>
-      )}
-    </PDFDownloadLink>
+    <>
+      <PDFDownloadLink
+        document={<BenefitSummaryDocument {...props} />}
+        fileName={fileName}
+        className="inline-flex items-center justify-center rounded-none h-14 px-8 text-lg font-bold border-2 border-black bg-secondary text-black transition-all hover:bg-secondary/90 hover:translate-x-[2px] hover:translate-y-[2px] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[4px] active:translate-y-[4px]"
+        style={{ 
+          textDecoration: 'none',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        {({ loading, blob, url, error }) => {
+          // Log button state changes
+          console.log("PDFDownloadLink state:", { loading, hasBlob: !!blob, hasUrl: !!url, error, url });
+          
+          // Log any errors for debugging
+          if (error) {
+            console.error("PDF generation error:", error);
+          }
+          
+          // Log when PDF is ready
+          if (blob && !loading) {
+            console.log("PDF ready for download!", { blobSize: blob.size, url });
+            // Cache the blob
+            if (!pdfBlob) {
+              setPdfBlob(blob);
+            }
+          }
+          
+          // If PDFDownloadLink works, use it; otherwise fall back to manual generation
+          if (blob && url && !loading) {
+            return (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                DOWNLOAD PDF SUMMARY <Download className="ml-2 w-6 h-6" />
+              </span>
+            );
+          }
+          
+          // Fallback: manual button
+          return (
+            <span 
+              onClick={(e) => {
+                e.preventDefault();
+                handleButtonClick();
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}
+            >
+              {isGenerating || loading ? "GENERATING PDF..." : "DOWNLOAD PDF SUMMARY"} <Download className="ml-2 w-6 h-6" />
+            </span>
+          );
+        }}
+      </PDFDownloadLink>
+    </>
   );
 }
 

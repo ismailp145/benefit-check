@@ -57,38 +57,104 @@ function extractTransaction(row: any[]): ParsedTransaction | null {
   let merchant = "";
   let amount = 0;
   let description = "";
+  const dateIndices: number[] = [];
   
-  // Try to find date (usually first or second column)
-  for (let i = 0; i < Math.min(3, row.length); i++) {
+  // First pass: identify date columns to exclude from amount search
+  for (let i = 0; i < Math.min(5, row.length); i++) {
     const cell = String(row[i] || "").trim();
     if (isDateLike(cell)) {
-      date = cell;
-      break;
+      if (!date) {
+        date = cell;
+      }
+      dateIndices.push(i);
     }
   }
   
-  // Try to find merchant/description (usually within first 4 columns)
+  // Try to find merchant/description (usually within first 4 columns, skip dates)
   for (let i = 0; i < Math.min(4, row.length); i++) {
+    if (dateIndices.includes(i)) continue;
     const cell = String(row[i] || "").trim();
-    if (cell && !isDateLike(cell) && !isNumberLike(cell) && cell.length > 3) {
+    if (cell && !isNumberLike(cell) && cell.length > 3) {
       merchant = cell;
       description = cell;
       break;
     }
   }
   
-  // Try to find amount (look for numeric values)
+  // Try to find amount (skip date columns and look for dollar amounts)
+  // Look for amounts that are clearly transaction amounts:
+  // - Have decimal points (e.g., 12.50)
+  // - Have dollar signs
+  // - Are reasonable transaction amounts (not tiny numbers like 1, 2, 3 which could be months)
   for (let i = 0; i < row.length; i++) {
+    // Skip columns we've identified as dates
+    if (dateIndices.includes(i)) continue;
+    
     const cell = row[i];
+    const cellStr = typeof cell === "string" ? cell.trim() : String(cell);
+    
+    let cellValue: number | null = null;
+    
     if (typeof cell === "number") {
-      amount = Math.abs(cell);
-      break;
+      // Excel dates are typically > 40000 (serial date), amounts are usually < 100000
+      // Also check if it's a reasonable transaction amount (has decimal part or is large enough)
+      // Skip very small integers (1-31) that could be day/month components
+      if (cell < 40000 && cell >= 0.01) {
+        const cellStrNum = String(cell);
+        // Prefer numbers with decimals, or numbers >= 1 that aren't likely dates
+        if (cellStrNum.includes(".") || (cell >= 1 && cell <= 100000)) {
+          cellValue = Math.abs(cell);
+        }
+      }
     } else if (typeof cell === "string") {
-      const cleaned = cell.replace(/[$,\s]/g, "");
-      const parsed = parseFloat(cleaned);
-      if (!isNaN(parsed)) {
-        amount = Math.abs(parsed);
+      // Look for dollar signs or decimal points (indicating currency)
+      // Also check for patterns like "12.50" which are clearly amounts
+      if (cellStr.includes("$") || cellStr.includes(".") || /^\d+\.\d{2}$/.test(cellStr.replace(/[$,\s()]/g, ""))) {
+        const cleaned = cellStr.replace(/[$,\s()]/g, "");
+        const parsed = parseFloat(cleaned);
+        if (!isNaN(parsed) && parsed > 0) {
+          cellValue = parsed;
+        }
+      }
+    }
+    
+    // If we found a value, check if it looks like a transaction amount
+    if (cellValue !== null && cellValue > 0) {
+      // Prefer amounts with decimals or amounts that are clearly not date components
+      const hasDecimal = cellStr.includes(".");
+      const isReasonableAmount = cellValue >= 0.01 && cellValue <= 100000;
+      
+      // If it has a decimal or is a reasonable transaction amount, use it
+      // Avoid single-digit integers that could be months (1-12)
+      if (hasDecimal || (isReasonableAmount && (cellValue >= 1 && (cellValue > 31 || hasDecimal)))) {
+        amount = cellValue;
         break;
+      }
+    }
+  }
+  
+  // If we still haven't found an amount, try a more lenient search
+  // but still skip date columns and avoid small integers
+  if (amount === 0) {
+    for (let i = 0; i < row.length; i++) {
+      if (dateIndices.includes(i)) continue;
+      
+      const cell = row[i];
+      const cellStr = typeof cell === "string" ? cell.trim() : String(cell);
+      
+      if (typeof cell === "number" && cell !== 0 && cell < 40000 && cell >= 0.01) {
+        // Avoid single-digit integers that could be date components
+        if (cell > 31 || String(cell).includes(".")) {
+          amount = Math.abs(cell);
+          break;
+        }
+      } else if (typeof cell === "string") {
+        const cleaned = cellStr.replace(/[$,\s()]/g, "");
+        const parsed = parseFloat(cleaned);
+        if (!isNaN(parsed) && parsed > 0 && parsed < 100000 && parsed >= 0.01) {
+          amount = parsed;
+          break;
+        }
       }
     }
   }
@@ -155,8 +221,17 @@ function getPerTransactionCreditCap(benefit: Benefit): number {
  */
 function isCreditTransaction(transaction: ParsedTransaction): boolean {
   const text = (transaction.merchant + " " + transaction.description).toLowerCase();
-  const creditKeywords = ["credit", "adjustment", "reimbursement", "refund", "rebate"];
-  return creditKeywords.some(keyword => text.includes(keyword));
+  const creditKeywords = ["credit", "adjustment", "reimbursement", "refund", "rebate", "payment", "credit adjustment"];
+  
+  // Check for credit keywords in merchant/description
+  if (creditKeywords.some(keyword => text.includes(keyword))) {
+    return true;
+  }
+  
+  // Credits are often indicated by parentheses or negative signs in statements
+  // But since we're using Math.abs() when parsing, we need to check the original text
+  // For now, rely on keywords since we normalize amounts to positive
+  return false;
 }
 
 /**

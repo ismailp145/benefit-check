@@ -47,8 +47,8 @@ export const CREDIT_CARDS: Record<string, CreditCard> = {
         name: "Dining Credit",
         totalAmount: 10,
         resetPeriod: "monthly",
-        description: "Grubhub, Cheesecake Factory, Goldbelly, Wine.com, Milk Bar, Shake Shack.",
-        merchantKeywords: ["grubhub", "shake shack", "cheesecake factory", "goldbelly", "wine.com", "milk bar"],
+        description: "Grubhub, Cheesecake Factory, Goldbelly, Wine.com, Five Guys.",
+        merchantKeywords: ["grubhub", "cheesecake factory", "goldbelly", "wine.com", "five guys"],
       },
       {
         id: "uber",
